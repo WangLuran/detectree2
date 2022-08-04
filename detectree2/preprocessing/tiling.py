@@ -3,6 +3,7 @@ import json
 import os
 import random
 import shutil
+import warnings
 from pathlib import Path
 
 import cv2
@@ -13,6 +14,8 @@ from fiona.crs import from_epsg
 from rasterio.io import DatasetReader
 from rasterio.mask import mask
 from shapely.geometry import box
+
+warnings.filterwarnings('error')
 
 # class img_data(DatasetReader):
 #    """
@@ -207,22 +210,30 @@ def tile_data_train(data: DatasetReader,
             # bbox_central = box(minx, miny, minx + tile_width, miny + tile_height)
 
             # turn the bounding boxes into geopandas DataFrames
-            geo = gpd.GeoDataFrame({"geometry": bbox}, index=[0], crs=from_epsg(4326))
+            CRS = from_epsg(4326)
+            geo = gpd.GeoDataFrame({"geometry": bbox}, index=[0], crs=CRS['init'])
+
             # geo_central = gpd.GeoDataFrame(
             #    {"geometry": bbox_central}, index=[0], crs=from_epsg(4326)
             # )  # 3182
             # overlapping_crowns = sjoin(crowns, geo_central, how="inner")
             # overlapping_crowns = sjoin(crowns, geo, predicate="within", how="inner")
 
-            overlapping_crowns = gpd.clip(crowns, geo)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                # Warning:
+                # _crs_mismatch_warn
+                overlapping_crowns = gpd.clip(crowns, geo)
 
-            # Ignore tiles with no crowns
-            if overlapping_crowns.empty:
-                continue
+                # Ignore tiles with no crowns
+                if overlapping_crowns.empty:
+                    continue
 
-            # Discard tiles that do not have a sufficient coverage of training crowns
-            if (overlapping_crowns.dissolve().area[0] / geo.area[0]) < threshold:
-                continue
+                # Discard tiles that do not have a sufficient coverage of training crowns
+                if (overlapping_crowns.dissolve().area[0] / geo.area[0]) < threshold:
+                    # Warning:
+                    # UserWarning: Geometry is in a geographic CRS. Results from 'area' are likely incorrect. Use 'GeoSeries.to_crs()' to re-project geometries to a projected CRS before this operation.
+                    continue
 
             # here we are cropping the tiff to the bounding box of the tile we want
             coords = get_features(geo)
@@ -350,7 +361,7 @@ def tile_data_train(data: DatasetReader,
                 )
                 with open(filename, "r") as f:
                     shp = json.load(f)
-                    shp.update(impath)
+                    shp.update(str(impath))
                 with open(filename, "w") as f:
                     json.dump(shp, f)
             except ValueError:
