@@ -369,7 +369,7 @@ def tile_data_train(data: DatasetReader,
                 continue
 
 
-def image_details(fileroot):
+def image_details(file_root):
     """Take a filename and split it up to get the coordinates, tile width and the buffer and then output box structure.
 
     Args:
@@ -378,7 +378,7 @@ def image_details(fileroot):
     Returns:
         Box structure
     """
-    image_info = fileroot.split("_")
+    image_info = file_root.split("_")
     minx = int(image_info[-4])
     miny = int(image_info[-3])
     tile_width = int(image_info[-2])
@@ -416,7 +416,7 @@ def is_overlapping_box(test_boxes_array, train_box):
 def to_traintest_folders(tiles_folder: str = "./",
                          out_folder: str = "./data/",
                          test_frac: float = 0.2,
-                         folds: int = 1):
+                         folds: int = 1, seed: int = None):
     """Send tiles to training (+validation) and test dir and automatically make sure no overlap.
 
     Args:
@@ -429,8 +429,11 @@ def to_traintest_folders(tiles_folder: str = "./",
         None
     """
 
-    Path(out_folder + "train").mkdir(parents=True, exist_ok=True)
-    Path(out_folder + "test").mkdir(parents=True, exist_ok=True)
+    tiles_dir = Path(tiles_folder)
+    out_dir = Path(out_folder)
+
+    Path(out_dir / "train").mkdir(parents=True, exist_ok=True)
+    Path(out_dir / "test").mkdir(parents=True, exist_ok=True)
 
     # I split differently by just randomly ordering a list and picking the first
     # fraction of them- I think this is easier and it still works so this comment
@@ -442,44 +445,53 @@ def to_traintest_folders(tiles_folder: str = "./",
     # percs = 100 * split / summed
     # percs = np.cumsum(percs)
 
-    filenames = glob.glob(tiles_folder + "*.png")
-    fileroots = [Path(item).stem for item in filenames]
+    # COMMENT NECESSARY HERE: COPY FILES into test and train directories
+    # If training and test boxes are overlapping then do not include in training data.
+    file_names = tiles_dir.glob("*.png")
+    file_roots = [item.stem for item in file_names]
     # jsonnames = glob.glob(tiles_folder + "*.geojson")
     # stemname = Path(filenames[0]).stem.split("_", 1)[0]
     # indices = [item.split("_", 1)[-1].split(".", 1)[0] for item in filenames]
 
-    num = list(range(0, len(filenames)))
+    num = list(range(0, len(file_roots)))
+
+    # this affects the random module module-wide
+    if seed is not None:
+        random.seed(seed)
     random.shuffle(num)
+
     test_boxes = []
 
-    for i in range(0, len(filenames)):
-        if i <= len(filenames) * test_frac:
-            test_boxes.append(image_details(fileroots[num[i]]))
-            shutil.copy(tiles_folder + fileroots[num[i]] + ".geojson",
-                        out_folder + "test/")
+    for i in range(0, len(file_roots)):
+        # copy to test
+        if i <= len(file_roots) * test_frac:
+            test_boxes.append(image_details(file_roots[num[i]]))
+            shutil.copy((tiles_dir / file_roots[num[i]]).with_suffix(".geojson"),
+                        out_dir / "test")
         else:
-            train_box = image_details(fileroots[num[i]])
+            # copy to train
+            train_box = image_details(file_roots[num[i]])
             if not is_overlapping_box(test_boxes, train_box):
-                shutil.copy(tiles_folder + fileroots[num[i]] + ".geojson",
-                            out_folder + "train/")
+                print("data!!!")
+                shutil.copy((tiles_dir / file_roots[num[i]]).with_suffix(".geojson"),
+                            out_dir / "train")
 
-    filenames = glob.glob(out_folder + "/train/*.geojson")
-    fileroots = [Path(item).stem for item in filenames]
+    # COMMENT NECESSARY HERE
+    file_names = (out_dir / "train").glob("*.geojson")
+    file_roots = [item.stem for item in file_names]
     # stemname = Path(filenames[0]).stem.split("_", 1)[0]
-
     # indices = [item.split("_", 1)[-1].split(".", 1)[0] for item in filenames]
-    num = list(range(0, len(filenames)))
-    random.shuffle(num)
     # random.shuffle(indices)
-    ind_split = np.array_split(fileroots, folds)
+    num = list(range(0, len(file_roots)))
+    random.shuffle(num)
+    ind_split = np.array_split(file_roots, folds)
 
     for i in range(0, folds):
-        Path(out_folder + "/train/fold_" + str(i + 1) + "/").mkdir(parents=True,
-                                                                   exist_ok=True)
+        Path(out_dir / f"train/fold_{i + 1}").mkdir(parents=True, exist_ok=True)
         for name in ind_split[i]:
             shutil.move(
-                out_folder + "train/" + name + ".geojson",
-                out_folder + "train/fold_" + str(i + 1) + "/",
+                out_dir / f"train/{name}.geojson",
+                out_dir / f"train/fold_{i + 1}/{name}.geojson",
             )
 
 
